@@ -1,0 +1,7 @@
+v6root
+*.o
+Makefile
+CMakeFiles
+CMakeCache.txt
+cmake_install.cmake
+*.a
