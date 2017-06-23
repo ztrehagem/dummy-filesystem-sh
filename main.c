@@ -77,6 +77,13 @@ disk_t load_disk(const char *filename) {
   return disk;
 }
 
+void free_disk(disk_t *disk) {
+  free(disk->boot_area.head);
+  free(disk->super_area.head);
+  free(disk->inode_area.head);
+  free(disk->storage_area.head);
+}
+
 int iaddr_to_saddr(disk_t *disk, unsigned short addr) {
   return addr - 2 - disk->filsys->s_isize;
 }
@@ -146,6 +153,8 @@ void ls(disk_t *disk, inode_t *wd) {
     }
     printf("%s\n", entry->name);
   }
+
+  free(dir.head);
 }
 
 inode_t *cd(disk_t *disk, inode_t *wd) {
@@ -163,8 +172,9 @@ inode_t *cd(disk_t *disk, inode_t *wd) {
       break;
     }
   }
+  free(dir.head);
+
   if (target && target->i_mode & IFDIR) {
-    printf("moved.\n");
     return target;
   } else {
     printf("no such directory\n");
@@ -193,5 +203,6 @@ int main(int argc, char const *argv[]) {
     }
   }
 
+  free_disk(&disk);
   return 0;
 }
