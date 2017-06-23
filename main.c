@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
-#include "src/hexdump.h"
 
 #define BLOCK 512
 
