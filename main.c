@@ -1,5 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
+#include <string.h>
+#include "src/hexdump.h"
 
 #define BLOCK 512
 
@@ -10,6 +13,7 @@ typedef struct {
 
 #define IFDIR 040000
 #define ILARG 010000
+#define ROOTINO 1
 
 typedef struct {
   unsigned short s_isize;
@@ -44,6 +48,11 @@ typedef struct {
   inode_t *inodes;
 } disk_t;
 
+typedef struct {
+  unsigned short ino;
+  unsigned char name[14];
+} entry_t;
+
 bytes_t read_blocks(FILE *fp, size_t blocks) {
   bytes_t bytes;
   bytes.len = BLOCK * blocks;
@@ -51,11 +60,11 @@ bytes_t read_blocks(FILE *fp, size_t blocks) {
   for (size_t i = 0; i < bytes.len; i++) {
     bytes.head[i] = fgetc(fp);
   }
-  printf("read size %ld\n", bytes.len / BLOCK);
+  printf("read %ld block\n", bytes.len / BLOCK);
   return bytes;
 }
 
-disk_t load(const char *filename) {
+disk_t load_disk(const char *filename) {
   disk_t disk;
   FILE *fp = fopen(filename, "r");
   disk.boot_area = read_blocks(fp, 1);
@@ -68,13 +77,41 @@ disk_t load(const char *filename) {
   return disk;
 }
 
-int main(int argc, char const *argv[]) {
-  disk_t disk = load("./v6root");
+int iaddr_to_saddr(disk_t *disk, unsigned short addr) {
+  return addr - 2 - disk->filsys->s_isize;
+}
 
-  inode_t *inodes = disk.inodes;
-  inode_t *root_inode = &inodes[0];
-  printf("ifdir %o\n", root_inode->i_mode & IFDIR);
-  printf("ilarg %o\n", root_inode->i_mode & ILARG);
+inode_t *get_inode(disk_t *disk, size_t ino) {
+  return &disk->inodes[ino - 1];
+}
+
+bytes_t load_file(disk_t *disk, inode_t *inode) {
+  bytes_t bytes;
+  bytes.len = (inode->i_size0 << 8) + (inode->i_size1);
+  bytes.head = malloc(sizeof(char) * bytes.len);
+  if (inode->i_mode & ILARG) {
+    // 間接参照
+  } else {
+    // 直接参照
+    for (size_t i = 0; i < bytes.len; i += BLOCK) {
+      size_t len = (size_t)fmin(bytes.len - i, i + BLOCK);
+      size_t saddr = iaddr_to_saddr(disk, inode->i_addr[i / BLOCK]) * BLOCK;
+      memcpy(&bytes.head[i], &disk->storage_area.head[saddr], len);
+    }
+  }
+  return bytes;
+}
+
+int main(int argc, char const *argv[]) {
+  disk_t disk = load_disk("./v6root");
+
+  inode_t *inode = get_inode(&disk, ROOTINO);
+  bytes_t dir = load_file(&disk, inode);
+  entry_t *entries = (entry_t *)dir.head; // TODO sort
+  size_t entries_num = dir.len / sizeof(entry_t);
+  for (entry_t *entry = &entries[0]; entry < &entries[entries_num]; entry++) {
+    printf("%4d\t%s\n", entry->ino, entry->name);
+  }
 
   return 0;
 }
