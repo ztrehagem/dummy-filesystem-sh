@@ -160,22 +160,43 @@ void ls(disk_t *disk, inode_t *wd) {
 inode_t *cd(disk_t *disk, inode_t *wd) {
   char input[100] = {};
   fgets(input, sizeof(input) - 1, stdin);
-  char *name = strtok(input, " \n");
+  char *path = strtok(input, " \n");
 
-  bytes_t dir = load_file(disk, wd);
-  entry_t *entries = (entry_t *)dir.head; // TODO sort
-  size_t entries_num = dir.len / sizeof(entry_t);
-  inode_t *target = NULL;
-  for (entry_t *entry = &entries[0]; entry < &entries[entries_num]; entry++) {
-    if (strncmp(name, entry->name, sizeof(entry->name)) == 0) {
-      target = get_inode(disk, entry->ino);
+  inode_t *inode = wd;
+  char *name = strtok(path, "/");
+
+  if (name == NULL || path[0] == '/') {
+    inode = get_inode(disk, ROOTINO);
+  }
+
+  while (name != NULL) {
+    inode_t *found = NULL;
+
+    bytes_t dir = load_file(disk, inode);
+    entry_t *entries = (entry_t *)dir.head; // TODO sort
+    size_t entries_num = dir.len / sizeof(entry_t);
+
+    for (entry_t *entry = &entries[0]; entry < &entries[entries_num]; entry++) {
+      if (strncmp(name, entry->name, sizeof(entry->name)) == 0) {
+        found = get_inode(disk, entry->ino);
+        break;
+      }
+    }
+
+    free(dir.head);
+
+    if (found && found->i_mode & IFDIR) {
+      inode = found;
+    } else {
+      inode = NULL;
       break;
     }
-  }
-  free(dir.head);
 
-  if (target && target->i_mode & IFDIR) {
-    return target;
+    name = strtok(NULL, "/");
+  };
+
+  if (inode) {
+    return inode;
   } else {
     printf("no such directory\n");
     return wd;
