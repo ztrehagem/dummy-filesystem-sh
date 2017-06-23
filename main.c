@@ -50,7 +50,7 @@ typedef struct {
 
 typedef struct {
   unsigned short ino;
-  unsigned char name[14];
+  char name[14];
 } entry_t;
 
 bytes_t read_blocks(FILE *fp, size_t blocks) {
@@ -60,7 +60,7 @@ bytes_t read_blocks(FILE *fp, size_t blocks) {
   for (size_t i = 0; i < bytes.len; i++) {
     bytes.head[i] = fgetc(fp);
   }
-  printf("read %ld block\n", bytes.len / BLOCK);
+  // printf("read %ld block\n", bytes.len / BLOCK);
   return bytes;
 }
 
@@ -85,12 +85,20 @@ inode_t *get_inode(disk_t *disk, size_t ino) {
   return &disk->inodes[ino - 1];
 }
 
+size_t get_filesize(inode_t *inode) {
+  return (inode->i_size0 << 8) + (inode->i_size1);
+}
+
+
+
 bytes_t load_file(disk_t *disk, inode_t *inode) {
   bytes_t bytes;
-  bytes.len = (inode->i_size0 << 8) + (inode->i_size1);
+  bytes.len = get_filesize(inode);
   bytes.head = malloc(sizeof(char) * bytes.len);
   if (inode->i_mode & ILARG) {
     // 間接参照
+    printf("間接参照は実装してません\n");
+    exit(1);
   } else {
     // 直接参照
     for (size_t i = 0; i < bytes.len; i += BLOCK) {
@@ -102,15 +110,87 @@ bytes_t load_file(disk_t *disk, inode_t *inode) {
   return bytes;
 }
 
+void ls(disk_t *disk, inode_t *wd) {
+  char input[100] = {};
+  fgets(input, sizeof(input), stdin);
+
+  char *opts = strtok(input, " \n");
+  char opt_l = 0;
+
+  if (opts != NULL && opts[0] == '-') {
+    for (char *c = &opts[0]; c < &opts[strlen(opts)]; c++) {
+      opt_l |= *c == 'l';
+    }
+  }
+
+  bytes_t dir = load_file(disk, wd);
+  entry_t *entries = (entry_t *)dir.head; // TODO sort
+  size_t entries_num = dir.len / sizeof(entry_t);
+
+  for (entry_t *entry = &entries[0]; entry < &entries[entries_num]; entry++) {
+    if (opt_l) {
+      inode_t *inode = get_inode(disk, entry->ino);
+      printf("%c%c%c%c%c%c%c%c%c%c  %8ld ",
+        inode->i_mode & IFDIR ? 'd' : '-',
+        inode->i_mode & 0400 ? 'r' : '-',
+        inode->i_mode & 0200 ? 'w' : '-',
+        inode->i_mode & 0100 ? 'x' : '-',
+        inode->i_mode & 040 ? 'r' : '-',
+        inode->i_mode & 020 ? 'w' : '-',
+        inode->i_mode & 010 ? 'x' : '-',
+        inode->i_mode & 04 ? 'r' : '-',
+        inode->i_mode & 02 ? 'w' : '-',
+        inode->i_mode & 01 ? 'x' : '-',
+        get_filesize(inode)
+      );
+    }
+    printf("%s\n", entry->name);
+  }
+}
+
+inode_t *cd(disk_t *disk, inode_t *wd) {
+  char input[100] = {};
+  fgets(input, sizeof(input) - 1, stdin);
+  char *name = strtok(input, " \n");
+
+  bytes_t dir = load_file(disk, wd);
+  entry_t *entries = (entry_t *)dir.head; // TODO sort
+  size_t entries_num = dir.len / sizeof(entry_t);
+  inode_t *target = NULL;
+  for (entry_t *entry = &entries[0]; entry < &entries[entries_num]; entry++) {
+    if (strncmp(name, entry->name, sizeof(entry->name)) == 0) {
+      target = get_inode(disk, entry->ino);
+      break;
+    }
+  }
+  if (target && target->i_mode & IFDIR) {
+    printf("moved.\n");
+    return target;
+  } else {
+    printf("no such directory\n");
+    return wd;
+  }
+}
+
 int main(int argc, char const *argv[]) {
   disk_t disk = load_disk("./v6root");
 
-  inode_t *inode = get_inode(&disk, ROOTINO);
-  bytes_t dir = load_file(&disk, inode);
-  entry_t *entries = (entry_t *)dir.head; // TODO sort
-  size_t entries_num = dir.len / sizeof(entry_t);
-  for (entry_t *entry = &entries[0]; entry < &entries[entries_num]; entry++) {
-    printf("%4d\t%s\n", entry->ino, entry->name);
+  inode_t *wd = get_inode(&disk, ROOTINO);
+
+  char cmd[10];
+  while (1) {
+    fseek(stdin, 0, SEEK_END);
+    printf("-------->> ");
+    scanf("%s", cmd);
+    if (strcmp(cmd, "exit") == 0) {
+      break;
+    } else if(strcmp(cmd, "ls") == 0) {
+      ls(&disk, wd);
+    } else if(strcmp(cmd, "cd") == 0) {
+      wd = cd(&disk, wd);
+    } else {
+      printf("unknown command\n");
+    }
   }
 
   return 0;
