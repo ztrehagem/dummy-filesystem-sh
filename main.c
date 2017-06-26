@@ -10,6 +10,7 @@ typedef struct {
   size_t len;
 } bytes_t;
 
+#define IALLOC 0100000
 #define IFDIR 040000
 #define ILARG 010000
 #define ROOTINO 1
@@ -59,7 +60,6 @@ bytes_t read_blocks(FILE *fp, size_t blocks) {
   for (size_t i = 0; i < bytes.len; i++) {
     bytes.head[i] = fgetc(fp);
   }
-  // printf("read %ld block\n", bytes.len / BLOCK);
   return bytes;
 }
 
@@ -116,6 +116,38 @@ bytes_t load_file(disk_t *disk, inode_t *inode) {
   return bytes;
 }
 
+void sort_entries(entry_t *dest[], entry_t *entries, size_t length) {
+  for (size_t i = 0; i < length; i++) {
+    entry_t *entry = &entries[i];
+    size_t pos;
+    for (pos = 0; pos < i; pos++) {
+      if (strncmp(dest[pos]->name, entry->name, sizeof(entry->name)) > 0) {
+        break;
+      }
+    }
+    for (size_t j = i; j > pos; j--) {
+      dest[j] = dest[j - 1];
+    }
+    dest[pos] = entry;
+  }
+}
+
+void print_inode_detail(inode_t *inode) {
+  printf("%c%c%c%c%c%c%c%c%c%c  %8ld ",
+    inode->i_mode & IFDIR ? 'd' : '-',
+    inode->i_mode & 0400 ? 'r' : '-',
+    inode->i_mode & 0200 ? 'w' : '-',
+    inode->i_mode & 0100 ? 'x' : '-',
+    inode->i_mode & 040 ? 'r' : '-',
+    inode->i_mode & 020 ? 'w' : '-',
+    inode->i_mode & 010 ? 'x' : '-',
+    inode->i_mode & 04 ? 'r' : '-',
+    inode->i_mode & 02 ? 'w' : '-',
+    inode->i_mode & 01 ? 'x' : '-',
+    get_filesize(inode)
+  );
+}
+
 void ls(disk_t *disk, inode_t *wd) {
   char input[100] = {};
   fgets(input, sizeof(input), stdin);
@@ -130,25 +162,18 @@ void ls(disk_t *disk, inode_t *wd) {
   }
 
   bytes_t dir = load_file(disk, wd);
-  entry_t *entries = (entry_t *)dir.head; // TODO sort
   size_t entries_num = dir.len / sizeof(entry_t);
+  entry_t *entries[entries_num];
+  sort_entries(entries, (entry_t *)dir.head, entries_num);
 
-  for (entry_t *entry = &entries[0]; entry < &entries[entries_num]; entry++) {
+  for (size_t i = 0; i < entries_num; i++) {
+    entry_t *entry = entries[i];
+    inode_t *inode = get_inode(disk, entry->ino);
+    if (!(inode->i_mode & IALLOC)) {
+      return;
+    }
     if (opt_l) {
-      inode_t *inode = get_inode(disk, entry->ino);
-      printf("%c%c%c%c%c%c%c%c%c%c  %8ld ",
-        inode->i_mode & IFDIR ? 'd' : '-',
-        inode->i_mode & 0400 ? 'r' : '-',
-        inode->i_mode & 0200 ? 'w' : '-',
-        inode->i_mode & 0100 ? 'x' : '-',
-        inode->i_mode & 040 ? 'r' : '-',
-        inode->i_mode & 020 ? 'w' : '-',
-        inode->i_mode & 010 ? 'x' : '-',
-        inode->i_mode & 04 ? 'r' : '-',
-        inode->i_mode & 02 ? 'w' : '-',
-        inode->i_mode & 01 ? 'x' : '-',
-        get_filesize(inode)
-      );
+      print_inode_detail(inode);
     }
     printf("%s\n", entry->name);
   }
